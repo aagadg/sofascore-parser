@@ -1,10 +1,10 @@
-import openpyxl
-from openpyxl import load_workbook
 import pandas as pd
 from bs4 import BeautifulSoup
 from selenium import webdriver
 import re
-from selenium.webdriver.support.ui import WebDriverWait
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import time
 
 def findBlockHeight(soup):
     height = soup.find('div', attrs={'class': 'ReactVirtualized__Grid__innerScrollContainer'})
@@ -13,16 +13,16 @@ def findBlockHeight(soup):
         l = b[b.index(' max-height') + 1]
     except:
         return 0
-    return round(float(l[:len(l)-2])*2)
+    return round(float(l[:len(l)-2])+800)
 
 def findMatchesArray(h,a):
-    football=[]
+    array=[]
     while (h <= a):
         driver.execute_script(f"window.scrollTo(0, {h});")
-        WebDriverWait(driver, 3)
+        time.sleep(1)
         data = driver.page_source
         soup = BeautifulSoup(data, "html.parser")
-        h += 1200
+        h += 800
         t = soup.find_all('a', attrs={'data-id': True})
         try:
             for i in t:
@@ -38,11 +38,20 @@ def findMatchesArray(h,a):
                 live = i.find('div', attrs={'color': 'sofaSingles.live'})
                 if live != None:
                     line += 'live'
-                if line not in football:
-                    football.append(line)
+                if line not in array:
+                    array.append(line)
         except:
             z = 0
-    return football
+    return array
+
+# Connect to Google Sheets
+scope = ['https://www.googleapis.com/auth/spreadsheets',
+         "https://www.googleapis.com/auth/drive"]
+
+credentials = ServiceAccountCredentials.from_json_keyfile_name("sofascore-parser.json", scope)
+client = gspread.authorize(credentials)
+google_sh = client.create("Parser")
+google_sh.share('muradrmagomedov@gmail.com', perm_type='user', role='writer')
 
 driver = webdriver.Chrome()
 driver.get("https://www.sofascore.com/")
@@ -61,7 +70,7 @@ for elem in p:
 #========Iterating through urls =======================================================
 for elem in urls:
     driver.get(elem)
-    WebDriverWait(driver, 3)
+    time.sleep(1)
     data = driver.page_source
     soup = BeautifulSoup(data, "html.parser")
 #=======Find-matches-block-height=====================================================
@@ -70,24 +79,16 @@ for elem in urls:
 #======================================================================================
 #========Iterating through page========================================================
     allmatches.append(findMatchesArray(h,a))
-#========Creating new xlsx file========================================================
-path = r'D:\Python prj\second\1.xlsx'
-wb = openpyxl.Workbook()
-wb.save(path)
-#======================================================================================
-#========opening created xlsx file and filling with dara===============================
-book = load_workbook(path)
-writer = pd.ExcelWriter(path, engine = 'openpyxl')
-writer.book = book
+
 for i in range(len(allmatches)):
     for j in range(len(allmatches[i])):
         x.append(allmatches[i][j].split(':'))
     name=urls[i].split('/')[-1]
     if name=='':
         name='football'
+    sheet=google_sh.add_worksheet(title=f'{name}',rows=1000,cols=4)
     df=pd.DataFrame(x)
-    df.to_excel(writer,sheet_name=f'{name}',index=False, header=False)
-    x=[]
-#=====================================================================================
-writer.close()
+    sheet.update(x)
+    x = []
+google_sh.del_worksheet(worksheet='Sheet1')
 driver.close()
